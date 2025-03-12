@@ -1,8 +1,9 @@
 import cv2
 import numpy as np
 import time
-from pose_detector import PoseDetector
-from shot_analyzer import ShotAnalyzer
+import sys
+from src.pose_detector import PoseDetector
+from src.shot_analyzer import ShotAnalyzer
 
 def main():
     # Initialize the webcam
@@ -22,6 +23,10 @@ def main():
     pose_detector = PoseDetector()
     shot_analyzer = ShotAnalyzer()
     
+    # Initialize face and smile detection
+    face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+    smile_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_smile.xml')
+    
     # Tracking variables
     frame_count = 0
     fps_start_time = time.time()
@@ -31,7 +36,14 @@ def main():
     last_shot_info = None
     shot_display_frames = 0
     
+    # Smile detection variables
+    smile_detected = False
+    smile_display_frames = 0
+    
     print("Basketball Shot Detector started. Press 'q' to quit.")
+    
+    # Create named window with normal properties (to allow X button to work properly)
+    cv2.namedWindow("Basketball Shot Detector", cv2.WINDOW_NORMAL)
     
     while True:
         # Read a frame from the webcam
@@ -62,6 +74,33 @@ def main():
             last_shot_info = shot_info
             shot_display_frames = 45  # Display for ~1.5 seconds
         
+        # Convert to grayscale for face/smile detection
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        
+        # Detect faces
+        faces = face_cascade.detectMultiScale(gray, 1.3, 5)
+        
+        # Process each face for smile detection
+        for (x, y, w, h) in faces:
+            # Draw rectangle around the face
+            cv2.rectangle(annotated_frame, (x, y), (x + w, y + h), (255, 0, 0), 2)
+            
+            # Region of interest for the face
+            roi_gray = gray[y:y + h, x:x + w]
+            roi_color = annotated_frame[y:y + h, x:x + w]
+            
+            # Detect smiles
+            smiles = smile_cascade.detectMultiScale(roi_gray, 1.8, 20)
+            
+            # If smile detected
+            if len(smiles) > 0:
+                smile_detected = True
+                smile_display_frames = 45  # Display for ~1.5 seconds
+                
+                # Draw rectangle around smile
+                for (sx, sy, sw, sh) in smiles:
+                    cv2.rectangle(roi_color, (sx, sy), (sx + sw, sy + sh), (0, 255, 0), 1)
+        
         # Display information on the frame
         # FPS counter
         cv2.putText(annotated_frame, f"FPS: {fps:.1f}", (10, 30), 
@@ -77,17 +116,30 @@ def main():
             cv2.putText(annotated_frame, f"Shot Detected: {last_shot_info['shot_type']}", 
                         (10, 110), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
             shot_display_frames -= 1
+            
+        # Show smile detection message if available
+        if smile_detected and smile_display_frames > 0:
+            cv2.putText(annotated_frame, "Nice smile! :)", (10, 150),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 255), 2)
+            smile_display_frames -= 1
+            if smile_display_frames == 0:
+                smile_detected = False
         
         # Display the processed frame
         cv2.imshow("Basketball Shot Detector", annotated_frame)
         
         # Exit on 'q' key press
-        if cv2.waitKey(1) & 0xFF == ord('q'):
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('q') or cv2.getWindowProperty("Basketball Shot Detector", cv2.WND_PROP_VISIBLE) < 1:
             break
     
     # Release resources
     cap.release()
     cv2.destroyAllWindows()
+    
+    # Ensure a clean exit
+    print("Application closed successfully.")
+    sys.exit(0)
 
 if __name__ == "__main__":
     main()
